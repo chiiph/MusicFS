@@ -1,0 +1,563 @@
+\documentclass[a4paper,oneside]{report}
+\usepackage[spanish]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\usepackage{fullpage}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{rotating}
+\usepackage{url}
+
+\lstset{
+language=xml,
+numbers=left,
+numberstyle=\footnotesize,
+stepnumber=1,
+numbersep=5pt,
+backgroundcolor=\color{lightgray},
+showspaces=false,
+showstringspaces=false,
+showtabs=false,
+frame=single,
+tabsize=2,
+captionpos=b,
+breaklines=true,
+breakatwhitespace=false,
+escapeinside={\%*}{*)},
+morekeywords={*,...}
+}
+
+\setlength{\parskip}{1ex plus 0.5ex minus 0.2ex}
+
+\title{MusicFS}
+
+\author{Tomás Touceda (LU: 84024)}
+
+\date{Noviembre de 2011}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\chapter{Introducción}
+
+La música hoy en día ha pasado a través de un proceso de digitalización importante. Los medios usuales de distribución de música poco a poco están perdiendo popularidad por sobre los formatos digitales, sobre los cuales predomina en la actualidad el MP3.
+
+Este formato, no solo contiene la representación digital del sonido de una canción, sino que posee la flexibilidad suficiente para mantener $metadatos$ de la música. Estos metadatos en el caso del formato MP3 están contenidos en un $tag$ llamado $ID3$.
+
+ID3 ya posee varias versiones, desde la década del 90' en que la idea surgió, se le han ido agregando más y más flexibilidades. De cualquier manera, en este trabajo nos vamos a focalizar en la versión 1, la cual establece que el tamaño del tag de metadatos sea de no más de 128 bytes. Entre los que es posible almacenar los siguientes datos:
+
+\begin{center}
+\begin{tabular}{ | l | l | }
+  \hline
+  Dato & Longitud \\ \hline
+  Título de la canción & 30 bytes \\ \hline
+  Artista & 30 bytes \\ \hline
+  Album & 30 bytes \\ \hline
+  Año & 4 bytes \\ \hline
+  Comentarios & 30 bytes \\ \hline
+  Género & 1 byte (referencia a un índice) \\ \hline
+\end{tabular}
+\end{center}
+
+
+Aun con tan pocos datos es posible realizar una serie de relaciones entre distintos archivos de música, sobre las cuales se pueden realizar búsquedas enriquecidas y asi saltear las restricciones de los nombres arbitrarios que se le pueden dar a los archivos en sí o de la ubicación de los mismos.
+
+La idea detrás de este trabajo es hacer uso de los metadatos que poseen estos archivos MP3, relacionarlos, y dar la posibilidad de navegar la música utilizando medios ya conocidos, pero movidos a través de la información semántica que se puede obtener.
+
+Para esto, se utilizó la abstracción de un sistema de archivos regular, como el que utilizamos a diario, pero en vez de contener una representación de los datos binarios almacenados en el disco rígido, contiene una representación semántica de la música almacenada en él. Es decir, se agrega un escalón más de abstracción manteniendo las interfaces ya conocidas.
+
+% Dada una colección de música en formato MP3, distribuída en distintos directorios, sin ningún tipo de convención de nombres para los archivos, ¿Cuál sería la mejor forma de buscar todas las canciones de un dado artista?, ¿Qué artistas realizaron una grabación en conjunto?. Preguntas como esta son las que las herramientas utilizadas en este trabajo dan la posibilidad de responder siempre y cuando las relaciones de los metadatos sean las adecuadas.
+
+\chapter{Especificación del sistema de archivos}
+
+Para construir el sistema de archivos que el usuario podrá utilizar, se analizan una serie de directorios de manera recursiva ubicando todos los archivos con formato MP3 dentro de ellos. Luego se obtienen los metadatos contenidos en estos para construir una representación RDF de la música encontrada, y una vez finalizado esto, el usuario utilizará el sistema de archivos sobre el cual las consultas usuales (acceso al directorio a/b/c/, por ejemplo) serán traducidas a consultas SPARQL sobre este grafo RDF. La especificación del grafo RDF y del uso de SPARQL serán tratados más adelante.
+
+\section{Directorios}
+
+Un sistema de archivos está formado por directorios, archivos, y enlaces. Por una cuestión de simplicidad, no se utilizan enlaces en esta representación.
+
+Los directorios en esta implementación cumplirarán el rol de categorías. Cada canción está realizada por uno o más artistas, y pertenece a uno o más albums, por lo que los directorios no van a conducir a un único archivo, sino que actuarán como filtros. Por ende, un mismo archivo puede ser encontrado por dos caminos diferentes, sin que este esté realmente duplicado en el disco de almacenamiento.
+
+Más específicamente, la categorización en el primer nivel será la siguiente: $artista$, $album$, $cancion$. Si nos posicionamos en el directorio de $artista$, se podrán ver todos los artistas que existen en algún tag ID3 en algún archivo MP3 de los analizados. Si lo hacemos sobre el directorio de $album$ podremos ver todos los albums a los que pertenecen los MP3 analizados, y finalmente en $cancion$ se podrán ver todas las canciones analizadas.
+
+Cada artista, y cada album (dependiendo del camino elegido), será a su vez un directorio, que contendrá finalmente las canciones.
+
+\section{Archivos}
+
+Los únicos archivos que estarán contenidos en esta abstracción serán los que representen a los MP3s en cuestión. Estos estarán nombrados con el nombre de la cación según el tag ID3 concatenado con la extensión $``.mp3''$. El agregado de la extensión se realiza ya que muchos reproductores de música solo dejan reproducir archivos con esta extensión, en vez de filtrar por los tipos MIME (audio/mpeg) del mismo.
+
+\section{Decisiones de diseño}
+
+Dado que no todos los archivos poseen tags ID3, o tal vez estas están incompletas, se resolvió lo siguiente: en caso de que el MP3 no contenga información de album, se establecerá a este como ``Unknown Album''; en caso de que no contenga información de artista, se establecerá a este como ``Unknown Artist''; y en caso de que no contenga información de canción, se establecerá	 a esta como el nombre del archivo.
+
+\chapter{Modo de uso}
+
+Para utilizar el sistema, se deberá posicionar sobre el directorio raiz del proyecto, y ejecutar el siguiente comando:
+
+\begin{lstlisting}
+$ python src/mfs.py punto/de/montaje/ --dirs "path/a/mp3/:path/a/otro/mp3/"
+\end{lstlisting}
+
+Siendo ``punto/de/montaje/'' el directorio utilizado como raiz del sistema de archivos de música, y ``path/a/mp3'' y ``path/a/otros/mp3/'' dos directorios que contienen archivos MP3 en algún punto.
+
+Para desmontar el sistema de archivos se deberá ejecutar el siguiente comando:
+
+\begin{lstlisting}
+$ fusermount -u punto/de/montaje/
+\end{lstlisting}
+
+\chapter{Implementación}
+
+A continuación se detalla cómo se realizó la implementación del sistema de archivos.
+
+\section{Tecnologías utilizadas}
+
+\subsection{RDF}
+
+De las representaciones posibles existentes para datos semánticos, la elegida fue RDF dada la simpleza que presenta a la hora de generar el grafo de relaciones.
+
+Los tipos de relaciones que se utilizaron forman parte de ontologías que abarcan mucho más de lo que se hizo uso en este caso. Detalles sobre ellas serán tratados a continuación.
+
+\subsubsection{Ontología Friend of a Friend}
+
+De la ontología FOAF se utilizó la propiedad ``name'', que vincula el nodo blanco que representa a un artista y todo su trabajo, con un literal string que será el nombre del artista o grupo musical.
+
+Más información sobre esta propiedad puede ser encontrada en:
+
+\begin{lstlisting}
+http://xmlns.com/foaf/spec/#term_name
+\end{lstlisting}
+
+\subsubsection{Ontología Dublin Core}
+
+De esta ontología se utilizó la propiedad ``title'', para vincular por un lado a los nodos blancos que especifican un album con un literal string que representa el título del album en cuestión; y por el otro para vincular los nodos blancos que representan canciones con un literal string que representa el título de la canción.
+
+Más información sobre esta propiedad puede ser encontrada en:
+
+\begin{lstlisting}
+http://dublincore.org/2010/10/11/dcelements.rdf#title
+\end{lstlisting}
+
+También se utiliza la propiedad ``source'' para vincular una canción con su path original en el disco rígido que fue analizado.
+
+Más información sobre esta propiedad puede ser encontrada en:
+
+\begin{lstlisting}
+http://dublincore.org/2010/10/11/dcelements.rdf#source
+\end{lstlisting}
+
+\subsubsection{Ontología MusicOntology}
+
+Por último, con esta ontología se representaron las propiedades más importantes del grafo de metadatos.
+
+La propiedad ``MusicGroup'' se utilizó como tipo de los nodos blancos que representa un grupo musical y todo su trabajo.
+
+Más información sobre esta propiedad puede ser encontrada en:
+
+\begin{lstlisting}
+http://musicontology.com/#term_MusicGroup
+\end{lstlisting}
+
+La propiedad ``Record'' se utilizó como tipo de los nodos blancos que representan a un album.
+
+Más información sobre esta propiedad puede ser encontrada en:
+
+\begin{lstlisting}
+http://musicontology.com/#term_Record
+\end{lstlisting}
+
+Y por último, como tipo de los nodos blancos que representan canciones, se utilizó la propiedad ``Track''.
+
+Más información sobre esta propiedad puede ser encontrada en:
+
+\begin{lstlisting}
+http://musicontology.com/#term_Track
+\end{lstlisting}
+
+Por otra parte, cuando el tag ID3 posee número de track para un dado tema, este es almacenado con la propiedad ``track\_number'', que enlaza a un literal string que representa el número de track en el disco al que pertenece la canción. Esta propiedad no es utilizada actualente en el sistema, pero resultó conveniente modelarla de cualquier manera.
+
+Más información sobre esta propiedad puede ser encontrada en:
+
+\begin{lstlisting}
+http://musicontology.com/#term_track_number
+\end{lstlisting}
+
+En el Apéndice \ref{ejemploXML} se puede apreciar la serialización de RDF a XML/RDF en un caso de uso del sistema de archivos.
+
+\subsection{SPARQL}
+
+Una vez que se generó la representación en memoria a través del RDF descripto anteriormente, necesitamos una forma de poder realizar consultas. Para esto se utilizó SPARQL, que es un lenguaje de consulta similar a los conocidos *SQL diseñado específicamente para RDF.
+
+Al contar con este lenguaje de consulta, lo único que resta es encontrar un esquema de traducción de una ruta de directorio o hacia un archivo a una consulta SPARQL. A continuación se detalla por cada posible $path$ consultado al sistema de archivos, la consulta SPARQL que se utiliza para obtener resultados.
+
+\subsubsection{artist/}
+
+\begin{lstlisting}
+SELECT ?artist WHERE { ?b a mo:MusicGroup . ?b foaf:name ?artist }
+\end{lstlisting}
+
+\subsubsection{artist/name/}
+
+\begin{lstlisting}
+SELECT ?record WHERE { ?b a mo:MusicGroup . ?b foaf:name "<name>" .
+                       ?b mo:Record ?c . ?c dc:title ?record }
+\end{lstlisting}
+
+\subsubsection{artist/name/record/}
+
+\begin{lstlisting}
+SELECT ?track_number ?track 
+               WHERE { ?b a mo:MusicGroup . ?b foaf:name "<name>" . 
+                       ?b mo:Record ?c .
+                       ?c dc:title "<record>" . ?c mo:track ?t .
+                       ?t dc:title ?track . 
+                       ?t mo:track_number ?track_number }
+\end{lstlisting}
+
+\subsubsection{artist/name/record/song}
+
+\begin{lstlisting}
+SELECT ?source  WHERE { ?b a mo:MusicGroup . ?b foaf:name "<name>" . 
+                        ?b mo:Record ?c .
+                        ?c dc:title "<record>" . ?c mo:track ?t .
+                        ?t dc:title "<song>" . ?t dc:source ?source }
+\end{lstlisting}
+
+\subsubsection{album/}
+
+\begin{lstlisting}
+SELECT ?record ?band WHERE { ?b a mo:MusicGroup . ?b foaf:name ?band . 
+                             ?b mo:Record ?c .
+                             ?c dc:title ?record }
+\end{lstlisting}
+
+\subsubsection{album/record/}
+
+\begin{lstlisting}
+SELECT ?band ?track_number ?track 
+                     WHERE { ?b a mo:MusicGroup . ?b foaf:name ?band . 
+                             ?b mo:Record ?c .
+                             ?c dc:title "<record>" . ?c mo:track ?t .
+                             ?t dc:title ?track . 
+                             ?t mo:track_number ?track_number }
+\end{lstlisting}
+
+\subsubsection{album/record/song}
+
+\begin{lstlisting}
+SELECT ?band ?source ?track 
+                     WHERE { ?b a mo:MusicGroup . ?b foaf:name ?band . 
+                             ?b mo:Record ?c .
+                             ?c dc:title "<record>" . ?c mo:track ?t .
+                             ?t dc:title "<song>" . ?t dc:source ?source }
+\end{lstlisting}
+
+\subsubsection{songs/}
+
+\begin{lstlisting}
+SELECT ?band ?track_number ?track ?record 
+                     WHERE { ?b a mo:MusicGroup . ?b foaf:name ?band . 
+                             ?b mo:Record ?c .
+                             ?c dc:title ?record . ?c mo:track ?t .
+                             ?t dc:title ?track . 
+                             ?t mo:track_number ?track_number }
+\end{lstlisting}
+
+
+\subsubsection{songs/song}
+
+\begin{lstlisting}
+SELECT ?band ?track ?source ?record 
+                     WHERE { ?b a mo:MusicGroup . ?b foaf:name ?band . 
+                             ?b mo:Record ?c .
+                             ?c dc:title ?record . ?c mo:track ?t .
+                             ?t dc:title "<song>" . 
+                             ?t dc:source ?source }
+\end{lstlisting}
+
+\subsection{Lenguaje de programación y bibliotecas utilizadas}
+
+Para implementar el sistema de archivos se utilizó el lenguaje Python en la versión 2.7 bajo el sistema operativo GNU/Linux, particularmente en Ubuntu 11.10.
+
+Para realizar la interfaz entre el sistema de archivos en el kernel Linux y Python, se utilizó la biblioteca FUSE para crear sistemas de archivos en $userspace$.
+
+El manejo RDF y el motor de consultas de SPARQL forman parte de la biblioteca rdflib. Y el análisis de los tags ID3 se realizaron con la biblioteca Python llamada id3.py.
+
+Los paquetes necesarios para utilizar el sistema bajo Debian o distribuciones similares, son los siguientes:
+
+\begin{itemize}
+ \item python-fuse
+ \item python-rdflib
+ \item python-id3
+\end{itemize}
+
+\chapter{Ejemplos de uso}
+
+A modo de ejemplo, el archivo generado para el Apéndice \ref{ejemploXML} genera el siguiente sistema de archivos:
+
+\begin{lstlisting}
+point/
+|-- album
+|   |-- In the Pit of the Stomach
+|   |   |-- Act On Impulse.mp3
+|   |   |-- Boy In the Backseat.mp3
+|   |   |-- Circles and Squares.mp3
+|   |   |-- Hard to Remember.mp3
+|   |   |-- Human Error.mp3
+|   |   |-- Medicine.mp3
+|   |   |-- Pear Tree.mp3
+|   |   |-- Picture of Health.mp3
+|   |   |-- Sore Thumb.mp3
+|   |   `-- Through the Dirt and the Grave.mp3
+|   `-- Noel Gallaghers High Flying Bi
+|       |-- AKA... Broken Arrow.mp3
+|       |-- AKA... What A Life!.mp3
+|       |-- Dream On.mp3
+|       |-- Everybody's On The Run.mp3
+|       |-- If I Had A Gun....mp3
+|       |-- (I Wanna Live In A Dream In My.mp3
+|       |-- Soldier Boys And Jesus Freaks.mp3
+|       |-- Stop The Clocks.mp3
+|       |-- (Stranded On) The Wrong Beach.mp3
+|       `-- The Death Of You And Me.mp3
+|-- artist
+|   |-- Noel Gallagher
+|   |   `-- Noel Gallaghers High Flying Bi
+|   |       |-- AKA... Broken Arrow.mp3
+|   |       |-- AKA... What A Life!.mp3
+|   |       |-- Dream On.mp3
+|   |       |-- Everybody's On The Run.mp3
+|   |       |-- If I Had A Gun....mp3
+|   |       |-- (I Wanna Live In A Dream In My.mp3
+|   |       |-- Soldier Boys And Jesus Freaks.mp3
+|   |       |-- Stop The Clocks.mp3
+|   |       |-- (Stranded On) The Wrong Beach.mp3
+|   |       `-- The Death Of You And Me.mp3
+|   `-- We Were Promised Jetpacks
+|       `-- In the Pit of the Stomach
+|           |-- Act On Impulse.mp3
+|           |-- Boy In the Backseat.mp3
+|           |-- Circles and Squares.mp3
+|           |-- Hard to Remember.mp3
+|           |-- Human Error.mp3
+|           |-- Medicine.mp3
+|           |-- Pear Tree.mp3
+|           |-- Picture of Health.mp3
+|           |-- Sore Thumb.mp3
+|           `-- Through the Dirt and the Grave.mp3
+`-- song
+    |-- Act On Impulse.mp3
+    |-- AKA... Broken Arrow.mp3
+    |-- AKA... What A Life!.mp3
+    |-- Boy In the Backseat.mp3
+    |-- Circles and Squares.mp3
+    |-- Dream On.mp3
+    |-- Everybody's On The Run.mp3
+    |-- Hard to Remember.mp3
+    |-- Human Error.mp3
+    |-- If I Had A Gun....mp3
+    |-- (I Wanna Live In A Dream In My.mp3
+    |-- Medicine.mp3
+    |-- Pear Tree.mp3
+    |-- Picture of Health.mp3
+    |-- Soldier Boys And Jesus Freaks.mp3
+    |-- Sore Thumb.mp3
+    |-- Stop The Clocks.mp3
+    |-- (Stranded On) The Wrong Beach.mp3
+    |-- The Death Of You And Me.mp3
+    `-- Through the Dirt and the Grave.mp3
+
+9 directories, 60 files
+\end{lstlisting}
+
+\chapter{Conclusión}
+
+Si bien este trabajo no explota al máximo el potencial que poseen estas soluciones de la web semántica, es evidente que muy poca información manipulada de forma adecuada puede proporcionar una gran cantidad de información adicional implícita. Esto se ve en este caso particularmente en la ganancia en usabilidad que le agrega al usuario las nuevas formas de búsqueda de música.
+
+Por otro lado, existen bases de datos de música como SoundOut \footnote{http://soundoutsearch.com/} o BBC Music \footnote{http://www.bbc.co.uk/music}, entre otros, que explotan más aristas de la información semántica que se puede extraer de la música, lo que demuestra que proyectos como este son solo la punta del iceberg de las posibilidades de la web semántica.
+
+\chapter{Bibliografía}
+
+\begin{thebibliography}{9}
+
+\bibitem{CLASES} Fillottrani, Pablo. \emph{Clases de Fundamentos de la web semántica}
+disponibles en 
+\url{http://www.cs.uns.edu.ar/~prf/teaching/FSW11/}.
+
+\bibitem{MO} \emph{Music Ontology}
+\url{http://musicontology.com/}.
+
+\bibitem{DC} \emph{Dublin Core Metadata Initiative}
+\url{http://dublincore.org/}.
+
+\bibitem{FOAF} \emph{Friend of a Friend Project}
+\url{http://www.foaf-project.org/}.
+
+\bibitem{SPARQL} \emph{SPARQL Query Language for RDF}
+\url{http://www.w3.org/TR/rdf-sparql-query/}.
+
+\bibitem{RDF} \emph{Resource Description Framework}
+\url{http://www.w3.org/RDF/}.
+
+\bibitem{RDFLIB} \emph{RDFLib}
+\url{http://www.rdflib.net/}.
+
+\bibitem{QUERY} \emph{Query languages for the Semantic Web}
+\url{http://www.w3.org/standards/semanticweb/query}.
+
+\bibitem{ONTO} \emph{Ontologies for the Semantic Web}
+\url{http://www.w3.org/standards/semanticweb/ontology}.
+
+\end{thebibliography}
+
+\appendix
+\chapter{Representación XML del ejemplo}\label{ejemploXML}
+\begin{lstlisting}
+<?xml version="1.0" encoding="utf-8"?>
+<rdf:RDF
+  xmlns:foaf='http://xmlns.com/foaf/0.1/'
+  xmlns:mo='http://purl.org/ontology/mo/'
+  xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'
+  xmlns:dc='http://purl.org/dc/elements/1.1/'
+>
+  <mo:MusicGroup>
+    <mo:Record>
+      <rdf:Description>
+        <dc:title>In the Pit of the Stomach</dc:title>
+        <mo:track rdf:nodeID="rPAcmWMN10"/>
+        <mo:track rdf:nodeID="rPAcmWMN6"/>
+        <mo:track rdf:nodeID="rPAcmWMN9"/>
+        <mo:track rdf:nodeID="rPAcmWMN7"/>
+        <mo:track rdf:nodeID="rPAcmWMN12"/>
+        <mo:track rdf:nodeID="rPAcmWMN14"/>
+        <mo:track rdf:nodeID="rPAcmWMN8"/>
+        <mo:track rdf:nodeID="rPAcmWMN5"/>
+        <mo:track rdf:nodeID="rPAcmWMN11"/>
+        <mo:track rdf:nodeID="rPAcmWMN13"/>
+      </rdf:Description>
+    </mo:Record>
+    <foaf:name>We Were Promised Jetpacks</foaf:name>
+  </mo:MusicGroup>
+  <mo:MusicGroup>
+    <mo:Record>
+      <rdf:Description>
+        <dc:title>Noel Gallaghers High Flying Bi</dc:title>
+        <mo:track rdf:nodeID="rPAcmWMN19"/>
+        <mo:track rdf:nodeID="rPAcmWMN24"/>
+        <mo:track rdf:nodeID="rPAcmWMN20"/>
+        <mo:track rdf:nodeID="rPAcmWMN25"/>
+        <mo:track rdf:nodeID="rPAcmWMN26"/>
+        <mo:track rdf:nodeID="rPAcmWMN21"/>
+        <mo:track rdf:nodeID="rPAcmWMN17"/>
+        <mo:track rdf:nodeID="rPAcmWMN22"/>
+        <mo:track rdf:nodeID="rPAcmWMN18"/>
+        <mo:track rdf:nodeID="rPAcmWMN23"/>
+      </rdf:Description>
+    </mo:Record>
+    <foaf:name>Noel Gallagher</foaf:name>
+  </mo:MusicGroup>
+  <rdf:Description rdf:nodeID="rPAcmWMN6">
+    <dc:title>Boy In the Backseat</dc:title>
+    <mo:track_number rdf:resource="8"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/08 - Boy In the Backseat.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN14">
+    <dc:title>Circles and Squares</dc:title>
+    <mo:track_number rdf:resource="1"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/01 - Circles and Squares.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN17">
+    <dc:title>AKA... Broken Arrow</dc:title>
+    <mo:track_number rdf:resource="8"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/08 - AKA... Broken Arrow.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN23">
+    <dc:title>Dream On</dc:title>
+    <mo:track_number rdf:resource="2"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/02 - Dream On.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN25">
+    <dc:title>(Stranded On) The Wrong Beach</dc:title>
+    <mo:track_number rdf:resource="9"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/09 - (Stranded On) The Wrong Beach.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN10">
+    <dc:title>Act On Impulse</dc:title>
+    <mo:track_number rdf:resource="4"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/04 - Act On Impulse.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN20">
+    <dc:title>(I Wanna Live In A Dream In My</dc:title>
+    <mo:track_number rdf:resource="5"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/05 - (I Wanna Live In A Dream In My) Record Machine.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN9">
+    <dc:title>Pear Tree</dc:title>
+    <mo:track_number rdf:resource="10"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/10 - Pear Tree.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN7">
+    <dc:title>Hard to Remember</dc:title>
+    <mo:track_number rdf:resource="5"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/05 - Hard to Remember.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN5">
+    <dc:title>Through the Dirt and the Grave</dc:title>
+    <mo:track_number rdf:resource="3"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/03 - Through the Dirt and the Gravel.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN26">
+    <dc:title>AKA... What A Life!</dc:title>
+    <mo:track_number rdf:resource="6"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/06 - AKA... What A Life!.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN8">
+    <dc:title>Picture of Health</dc:title>
+    <mo:track_number rdf:resource="6"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/06 - Picture of Health.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN19">
+    <dc:title>Everybody's On The Run</dc:title>
+    <mo:track_number rdf:resource="1"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/01 - Everybody's On The Run.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN18">
+    <dc:title>Stop The Clocks</dc:title>
+    <mo:track_number rdf:resource="10"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/10 - Stop The Clocks.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN12">
+    <dc:title>Human Error</dc:title>
+    <mo:track_number rdf:resource="9"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/09 - Human Error.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN21">
+    <dc:title>If I Had A Gun...</dc:title>
+    <mo:track_number rdf:resource="3"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/03 - If I Had A Gun....mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN11">
+    <dc:title>Medicine</dc:title>
+    <mo:track_number rdf:resource="2"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/02 - Medicine.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN24">
+    <dc:title>Soldier Boys And Jesus Freaks</dc:title>
+    <mo:track_number rdf:resource="7"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/07 - Soldier Boys And Jesus Freaks.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN22">
+    <dc:title>The Death Of You And Me</dc:title>
+    <mo:track_number rdf:resource="4"/>
+    <dc:source>/home/chiiph/Music/Noel Gallagher - Noel Gallaghers High Flying Birds (2011)/04 - The Death Of You And Me.mp3</dc:source>
+  </rdf:Description>
+  <rdf:Description rdf:nodeID="rPAcmWMN13">
+    <dc:title>Sore Thumb</dc:title>
+    <mo:track_number rdf:resource="7"/>
+    <dc:source>/home/chiiph/Music/We Were Promised Jetpacks - In the Pit of the Stomach (2011)/07 - Sore Thumb.mp3</dc:source>
+  </rdf:Description>
+</rdf:RDF>
+\end{lstlisting}
+\end{document}
